@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import gnupg
 import re
 import random
