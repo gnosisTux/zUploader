@@ -5,6 +5,7 @@ import os
 import requests
 import gnupg
 import tempfile
+from urllib.parse import urlparse
 
 # ----------------------------
 # Argument Parser
@@ -12,47 +13,47 @@ import tempfile
 parser = argparse.ArgumentParser(
     description="Download and decrypt a GPG encrypted file."
 )
-
-# Mandatory argument: URL of the encrypted file
 parser.add_argument(
     "url",
     metavar="URL",
     help="URL of the encrypted file to download."
 )
-
-# Optional argument: path to save the decrypted file
 parser.add_argument(
     "output_path",
     metavar="OUTPUT",
     nargs="?",
-    help="Optional path to save the decrypted file. Defaults to the same filename in the current directory."
+    help="Optional path to save the decrypted file. Defaults to the filename inferred from URL."
 )
-
 args = parser.parse_args()
+
+# ----------------------------
+# Ensure /raw at the end of URL
+# ----------------------------
+url = args.url
+if not url.endswith("/raw"):
+    url = url.rstrip("/") + "/raw"
 
 # ----------------------------
 # Initialize GPG
 # ----------------------------
 gpg = gnupg.GPG()
-gpg.encoding = "utf-8"  # Ensure UTF-8 encoding
+gpg.encoding = "utf-8"
 
 # ----------------------------
 # Determine temporary path for the downloaded encrypted file
 # ----------------------------
-filename_encrypted = os.path.basename(args.url)
+filename_encrypted = os.path.basename(urlparse(url).path)
 tmp_encrypted_path = os.path.join(tempfile.gettempdir(), filename_encrypted)
 
 # ----------------------------
-# Download the encrypted file from the given URL
+# Download the encrypted file from the URL
 # ----------------------------
 try:
-    response = requests.get(args.url, stream=True)
-    response.raise_for_status()  # Raise exception on HTTP errors
-
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
     with open(tmp_encrypted_path, "wb") as f:
         for chunk in response.iter_content(8192):
             f.write(chunk)
-
     print(f"Encrypted file downloaded to: {tmp_encrypted_path}")
 except requests.RequestException as e:
     print(f"Error downloading file: {e}")
@@ -64,32 +65,30 @@ except requests.RequestException as e:
 if args.output_path:
     decrypted_path = args.output_path
 else:
-    decrypted_path = filename_encrypted  # Save with the same name in current directory
+    # Extract real filename before /raw
+    path_parts = urlparse(url).path.split("/")
+    if len(path_parts) >= 2:
+        decrypted_filename = path_parts[-2]  # nombre real antes de /raw
+    else:
+        decrypted_filename = filename_encrypted
+    decrypted_path = decrypted_filename
 
 # ----------------------------
-# Decrypt the file with error handling
+# Decrypt the file
 # ----------------------------
 with open(tmp_encrypted_path, "rb") as f:
-    # Attempt decryption without providing a passphrase
     decrypted = gpg.decrypt_file(f, output=decrypted_path)
-    f.seek(0)  # Reset file pointer for a possible second attempt
+    f.seek(0)
 
     if decrypted.ok:
-        # Decryption succeeded without a passphrase
         print(f"File decrypted successfully: {decrypted_path}")
     elif decrypted.status == "no secret key":
-        # Asymmetric file: private key not available
         print("[*] Error: no secret key available to decrypt the asymmetric file")
     else:
-        # Symmetric encryption or other failure: request passphrase
         print("[*] The file requires a passphrase")
         passphrase = input("Enter the passphrase: ")
-
-        # Retry decryption with the provided passphrase
         decrypted = gpg.decrypt_file(f, passphrase=passphrase, output=decrypted_path)
-
         if decrypted.ok:
             print(f"File decrypted successfully: {decrypted_path}")
         else:
-            # Decryption failed even after providing a passphrase
             print(f"Error decrypting file: {decrypted.status}")
