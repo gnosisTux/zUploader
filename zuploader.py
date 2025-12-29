@@ -46,7 +46,7 @@ args = parser.parse_args()
 # ----------------------------
 # Initialize GPG
 # ----------------------------
-gpg = gnupg.GPG()
+gpg = gnupg.GPG(options=['--trust-model'. 'always'])
 gpg.encoding = 'utf-8'
 
 # ----------------------------
